@@ -7,6 +7,7 @@ python train_mini_imagenet.py \
 --optimizer adam \
 --step_size 20 \
 --gamma 0.5 \
+--alpha 0.5 \
 --lr 0.001 \
 -j 24 \
 --n_query_train 15 \
@@ -16,4 +17,4 @@ python train_mini_imagenet.py \
 --n_way_val 5 \
 --n_episodes_train 100 \
 --n_episodes_val 400 \
---model_name mini_imagenet_1_shot_30_way
+--model_name mini_imagenet_1_shot_30_way_alpha_0.5

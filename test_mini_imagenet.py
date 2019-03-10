@@ -1,29 +1,23 @@
+from samplers.episodic_batch_sampler import EpisodicBatchSampler
+from dataloaders.mini_imagenet_loader import MiniImageNet
+from models.convnet_mini import ConvNet
+from models.identity import Identity
+from utils import AverageMeter, compute_accuracy, euclidean_dist, mkdir
+from torch.utils.data import DataLoader
+import pprint
+import torch.nn.functional as F
+import torchvision.models as models
+import torch.utils.data.distributed
+import torch.utils.data
+import torch.optim
+import torch.backends.cudnn as cudnn
+import torch.nn.parallel
+import torch.nn as nn
+import torch
+import argparse
 import os
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"   # see issue #152
 os.environ["CUDA_VISIBLE_DEVICES"] = "3"
-import argparse
-import numpy as np
-import pandas as pd
-import torch
-import torch.nn as nn
-import torch.nn.parallel
-import torch.backends.cudnn as cudnn
-import torch.optim
-import torch.utils.data
-import torch.utils.data.distributed
-import torchvision.transforms as transforms
-import torchvision.models as models
-import torch.nn.functional as F
-import pprint
-
-
-from torch.utils.data import DataLoader
-from torchvision.datasets import ImageFolder
-from utils import AverageMeter, compute_accuracy, euclidean_dist, mkdir, weights_init_xavier, accuracy_top_k
-from models.identity import Identity
-from models.convnet_mini import ConvNet
-from dataloaders.mini_imagenet_loader import MiniImageNet
-from samplers.episodic_batch_sampler import EpisodicBatchSampler
 
 
 model_names = sorted(name for name in models.__dict__
@@ -79,7 +73,6 @@ def main():
 
         if args.out_dim is not None:
             lin = nn.Linear(model.fc.in_features, args.out_dim)
-            weights_init_xavier(lin)
             model.fc = lin
         else:
             model.fc = Identity()

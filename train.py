@@ -1,11 +1,11 @@
-from models.convnet_mini import ConvNet
 from models.identity import Identity
 from utils import AverageMeter, save_checkpoint, compute_accuracy, weights_init_xavier, mkdir, euclidean_dist
 from samplers.episodic_batch_sampler import EpisodicBatchSampler
-from dataloaders.mini_imagenet_loader import MiniImageNet
+from dataloaders.few_shot import ImageFolderFewShot
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 import torchvision.models as models
+import torchvision.transforms as transforms
 import torch.utils.data.distributed
 import torch.utils.data
 import torch.multiprocessing as mp
@@ -15,18 +15,19 @@ import torch.backends.cudnn as cudnn
 import torch.nn.parallel
 import torch.nn as nn
 import torch
+import numpy as np
 import warnings
 import time
 import random
 import argparse
 import os
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"   # see issue #152
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1, 2, 3"
 
 
-model_names = sorted(name for name in models.__dict__ if name.islower() and not name.startswith("__")
+model_names = sorted(name for name in models.__dict__
+                     if name.islower() and not name.startswith("__")
                      and callable(models.__dict__[name]))
-model_names.append('default_convnet')
 
 parser = argparse.ArgumentParser(description='PyTorch Prototypical Networks Training')
 parser.add_argument('--train_dir', type=str, help='path to training data (default: none)')
@@ -70,7 +71,7 @@ parser.add_argument('--dist-url', default='tcp://224.66.41.62:23456', type=str,
 parser.add_argument('--dist-backend', default='nccl', type=str,
                     help='distributed backend')
 parser.add_argument('--seed', default=None, type=int,
-                    help='seed for initializing training.')
+                    help='seed for initializing training. ')
 parser.add_argument('--gpu', default=None, type=int,
                     help='GPU id to use.')
 parser.add_argument('--multiprocessing-distributed', action='store_true',
@@ -78,6 +79,10 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
                          'N processes per node, which has N GPUs. This is the '
                          'fastest way to use PyTorch for either single node or '
                          'multi node data parallel training')
+parser.add_argument('--subtract_mean', type=float, default=(0.5, 0.5, 0.5), nargs=3,
+                    help='Substract mean of image channels when loading the data')
+parser.add_argument('--subtract_std', type=float, default=(0.5, 0.5, 0.5), nargs=3,
+                    help='Divide by std of image channels when loading the data')
 parser.add_argument('-s', '--image_size', default=224, type=int, help='Image Size to load images')
 parser.add_argument('--n_episodes_train', default=200, type=int, help='Number of episodes per epoch at train')
 parser.add_argument('--n_way_train', default=10, type=int, help='Number of classes per episode at train')
@@ -160,23 +165,20 @@ def main_worker(gpu, ngpus_per_node, args):
             args.rank = args.rank * ngpus_per_node + gpu
         dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
                                 world_size=args.world_size, rank=args.rank)
-    # Create model
-    if args.arch == 'default_convnet':
-        model = ConvNet()
+    # create model
+    if args.pretrained:
+        print("=> using pre-trained model '{}'".format(args.arch))
+        model = models.__dict__[args.arch](pretrained=True)
     else:
-        if args.pretrained:
-            print("=> using pre-trained model '{}'".format(args.arch))
-            model = models.__dict__[args.arch](pretrained=True)
-        else:
-            print("=> creating model '{}'".format(args.arch))
-            model = models.__dict__[args.arch]()
+        print("=> creating model '{}'".format(args.arch))
+        model = models.__dict__[args.arch]()
 
-        if args.out_dim is not None:
-            lin = nn.Linear(model.fc.in_features, args.out_dim)
-            weights_init_xavier(lin)
-            model.fc = lin
-        else:
-            model.fc = Identity()
+    if args.out_dim is not None:
+        lin = nn.Linear(model.fc.in_features, args.out_dim)
+        weights_init_xavier(lin)
+        model.fc = lin
+    else:
+        model.fc = Identity()
 
     print('Number of parameters: ', sum([p.numel() for p in model.parameters()]))
 
@@ -217,12 +219,9 @@ def main_worker(gpu, ngpus_per_node, args):
     elif args.optimizer == 'adam':
         optimizer = torch.optim.Adam(model.parameters(), args.lr)
 
-    else:
-        raise ValueError('Optimizer should be "sgd" or "adam"')
-
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=args.gamma)
 
-    # Optionally resume from a checkpoint
+    # optionally resume from a checkpoint
     if args.resume:
         if os.path.isfile(args.resume):
             print("=> loading checkpoint '{}'".format(args.resume))
@@ -237,13 +236,45 @@ def main_worker(gpu, ngpus_per_node, args):
             print("=> no checkpoint found at '{}'".format(args.resume))
 
     # Data loading code
-    train_dataset = MiniImageNet('train')
+    mean = np.array(args.subtract_mean)
+    std = np.array(args.subtract_std)
+
+    if mean[0] > 1 or mean[1] > 1 or mean[2] > 1:
+        print('One or more of the subtract mean values were above 1, dividing by 255...')
+        mean /= 255
+
+    if std[0] > 1 or std[1] > 1 or std[2] > 1:
+        print('One or more of the subtract std values were above 1, dividing by 255...')
+        std /= 255
+
+    print('Normalizing by mean of %.4f, %.4f, %.4f' % (mean[0], mean[1], mean[2]))
+    print('Normalizing by std of %.4f, %.4f, %.4f' % (std[0], std[1], std[2]))
+
+    normalize = transforms.Normalize(mean=mean, std=std)
+
+    # Training data
+    train_directory = args.train_dir
+    train_dataset = ImageFolderFewShot(
+        train_directory,
+        transforms.Compose([
+            transforms.Resize((args.image_size, args.image_size)),
+            # transforms.RandomHorizontalFlip(),
+            # transforms.RandomRotation(degrees=180),
+            transforms.ToTensor(),
+            normalize,
+        ]))
     train_sampler = EpisodicBatchSampler(train_dataset.labels, args.n_episodes_train, args.n_way_train,
                                          args.n_support + args.n_query_train)
     train_loader = DataLoader(dataset=train_dataset, batch_sampler=train_sampler, num_workers=args.workers,
                               pin_memory=True)
 
-    val_dataset = MiniImageNet('val')
+    # Validation data
+    validation_directory = args.val_dir
+    val_dataset = ImageFolderFewShot(validation_directory, transforms.Compose([
+        transforms.Resize((args.image_size, args.image_size)),
+        transforms.ToTensor(),
+        normalize,
+    ]))
     val_sampler = EpisodicBatchSampler(val_dataset.labels, args.n_episodes_val, args.n_way_val,
                                        args.n_support + args.n_query_val)
     val_loader = DataLoader(dataset=val_dataset, batch_sampler=val_sampler, num_workers=args.workers,
@@ -258,10 +289,10 @@ def main_worker(gpu, ngpus_per_node, args):
         if args.distributed:
             train_sampler.set_epoch(epoch)
 
-        # Train for one epoch
+        # train for one epoch
         loss_t, acc_t = train(train_loader, model, optimizer, epoch, args)
 
-        # Evaluate on validation set
+        # evaluate on validation set
         loss_val, acc1 = validate(val_loader, model, args)
 
         dict_metrics = {'loss_training': loss_t, 'loss_validation': loss_val,
@@ -271,7 +302,7 @@ def main_worker(gpu, ngpus_per_node, args):
             with open(os.path.join(results_dir, key + '.txt'), "a+") as myfile:
                 myfile.write(str(dict_metrics[key]) + '\n')
 
-        # Remember best acc@1 and save checkpoint
+        # remember best acc@1 and save checkpoint
         is_best = acc1 > best_acc1
         best_acc1 = max(acc1, best_acc1)
 
@@ -309,7 +340,6 @@ def train(train_loader, model, optimizer, epoch, args):
     end = time.time()
 
     optimizer.zero_grad()
-
     # Iterate over episodes
     for n_episode, batch in enumerate(train_loader, 1):
         data_time.update(time.time() - end)
@@ -342,13 +372,16 @@ def train(train_loader, model, optimizer, epoch, args):
         optimizer.step()
         optimizer.zero_grad()
 
+        logits = None  # Free the graph
+        acc = None  # Free the graph
+
         # Free the graph
         if args.alpha > 0.0:
             class_prototypes = class_prototypes.detach()
         else:
             class_prototypes = None
 
-        # Measure elapsed time
+        # measure elapsed time
         episode_time.update(time.time() - end)
         end = time.time()
 
@@ -370,7 +403,7 @@ def validate(val_loader, model, args):
     losses = AverageMeter()
     accuracy = AverageMeter()
 
-    # Switch to evaluate mode
+    # switch to evaluate mode
     model.eval()
 
     with torch.no_grad():
