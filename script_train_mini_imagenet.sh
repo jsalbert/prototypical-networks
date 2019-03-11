@@ -7,7 +7,6 @@ python train_mini_imagenet.py \
 --optimizer adam \
 --step_size 20 \
 --gamma 0.5 \
---alpha 0.5 \
 --lr 0.001 \
 -j 24 \
 --n_query_train 15 \
