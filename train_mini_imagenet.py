@@ -1,9 +1,3 @@
-from models.convnet_mini import ConvNet
-from models.identity import Identity
-from utils import AverageMeter, save_checkpoint, compute_accuracy, weights_init_xavier, mkdir, euclidean_dist
-from samplers.episodic_batch_sampler import EpisodicBatchSampler
-from dataloaders.mini_imagenet_loader import MiniImageNet
-from torch.utils.data import DataLoader
 import torch.nn.functional as F
 import torchvision.models as models
 import torch.utils.data.distributed
@@ -20,8 +14,14 @@ import time
 import random
 import argparse
 import os
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"   # see issue #152
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
+
+from models.convnet_mini import ConvNet
+from models.identity import Identity
+from utils import AverageMeter, save_checkpoint, compute_accuracy, weights_init_xavier, mkdir, euclidean_dist
+from samplers.episodic_batch_sampler import EpisodicBatchSampler
+from dataloaders.mini_imagenet_loader import MiniImageNet
+from torch.utils.data import DataLoader
 
 
 model_names = sorted(name for name in models.__dict__ if name.islower() and not name.startswith("__")

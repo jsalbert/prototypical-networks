@@ -1,7 +1,3 @@
-from models.identity import Identity
-from utils import AverageMeter, accuracy_top_k, euclidean_dist, mkdir, weights_init_xavier
-from torchvision.datasets import ImageFolder
-from torch.utils.data import DataLoader
 import pprint
 import torch.nn.functional as F
 import torchvision.models as models
@@ -17,8 +13,11 @@ import pandas as pd
 import numpy as np
 import argparse
 import os
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"   # see issue #152
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+
+from models.identity import Identity
+from utils import AverageMeter, accuracy_top_k, euclidean_dist, mkdir
+from torchvision.datasets import ImageFolder
+from torch.utils.data import DataLoader
 
 
 model_names = sorted(name for name in models.__dict__
@@ -73,7 +72,6 @@ def main():
 
     if args.out_dim is not None:
         lin = nn.Linear(model.fc.in_features, args.out_dim)
-        weights_init_xavier(lin)
         model.fc = lin
     else:
         model.fc = Identity()

@@ -1,8 +1,3 @@
-from models.identity import Identity
-from utils import AverageMeter, save_checkpoint, compute_accuracy, weights_init_xavier, mkdir, euclidean_dist
-from samplers.episodic_batch_sampler import EpisodicBatchSampler
-from dataloaders.few_shot import ImageFolderFewShot
-from torch.utils.data import DataLoader
 import torch.nn.functional as F
 import torchvision.models as models
 import torchvision.transforms as transforms
@@ -20,9 +15,13 @@ import warnings
 import time
 import random
 import argparse
-import os
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"   # see issue #152
-os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1, 2, 3"
+
+
+from models.identity import Identity
+from utils import AverageMeter, save_checkpoint, compute_accuracy, weights_init_xavier, mkdir, euclidean_dist
+from samplers.episodic_batch_sampler import EpisodicBatchSampler
+from dataloaders.few_shot import ImageFolderFewShot
+from torch.utils.data import DataLoader
 
 
 model_names = sorted(name for name in models.__dict__
