@@ -44,7 +44,8 @@ Based on the [original code](https://github.com/jakesnell/prototypical-networks)
 
 ## References 
 
-```@article{DBLP:journals/corr/SnellSZ17,
+```
+@article{DBLP:journals/corr/SnellSZ17,
   author    = {Jake Snell and
                Kevin Swersky and
                Richard S. Zemel},
